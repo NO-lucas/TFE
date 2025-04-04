@@ -1,26 +1,32 @@
 import cv2
 import glob
 import os
-
 from .utils import Datum, DatasetBase
 
 template = ["A pap smear slide showing a {} cervical cells."]
 
 
-class SipakMed(DatasetBase):
+class Cyto_random(DatasetBase):
 
-    dataset_dir = "sipakmed"
+    dataset_dir = "cyto_random"
     classes = [
-        "Dyskeratotic",
-        "Koilocytotic",
-        "Metaplastic",
-        "Parabasal",
-        "Superficial-Intermediate",
+        "1",
+        "2",
+        "3",
+        "41",
+        "42",
+        # "43",
+        "51",
+        "52",
+        "54",
+        "57"
     ]
 
     def __init__(self, root, num_shots):
-        self.dataset_dir = os.path.join(root, self.dataset_dir)
-        self.image_dir = os.path.join(self.dataset_dir, "images")
+        self.dataset_dir = os.path.join("", self.dataset_dir)
+        self.image_dir = os.path.join(self.dataset_dir, "")
+
+        print(self.dataset_dir, self.image_dir)
 
         self.template = template
 
@@ -28,7 +34,9 @@ class SipakMed(DatasetBase):
         val = self.create_list_of_datum("val")
         test = self.create_list_of_datum("test")
 
-        n_shots_val = min(num_shots, 4)
+        # n_shots_val = min(num_shots, 4)
+        n_shots_val = 100
+        n_shots_val = (num_shots // 6) + 1
         val = self.generate_fewshot_dataset(val, num_shots=n_shots_val)
         train = self.generate_fewshot_dataset(train, num_shots=num_shots)
 
@@ -36,7 +44,7 @@ class SipakMed(DatasetBase):
 
     def __getitem__(self, im_files, idx):
         image = cv2.imread(im_files[idx])
-        class_name = im_files[idx].split("/")[-1].split("_")[0]
+        class_name = im_files[idx].replace("\\", "/").split("/")[-1].split("_")[0]
         class_ = self.classes.index(class_name)
 
         return image, class_, class_name, im_files[idx]
@@ -44,8 +52,11 @@ class SipakMed(DatasetBase):
     def create_list_of_datum(self, set):
         """Create a list of Datum objects, each containing the image and label."""
         datum_list = []
+        
 
-        im_files = glob.glob(os.path.join(self.image_dir, set, "*.bmp"))
+        im_files = glob.glob(os.path.join(self.image_dir, set, "*.png"))
+
+
         for i in range(len(im_files)):
             # Get the image and the class
             image, class_, class_name, impath = self.__getitem__(im_files, i)

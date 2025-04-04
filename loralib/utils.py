@@ -371,6 +371,7 @@ def load_lora(args, list_lora_layers):
         )
 
     weights = loaded_data["weights"]
+    
     for i, layer in enumerate(list_lora_layers):
         layer_weights = weights[f"layer_{i}"]
         if "q" in args.params and "q_proj" in layer_weights:

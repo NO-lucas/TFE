@@ -159,6 +159,7 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
     model.apply(patch_device)
     patch_device(model.encode_image)
     patch_device(model.encode_text)
+    print("---------DEVICE------- : ",device)
 
     # patch dtype to float32 on CPU
     if str(device) == "cpu":

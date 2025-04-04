@@ -12,6 +12,9 @@ from .dtd import DescribableTextures
 from .stanford_cars import StanfordCars
 from .oxford_flowers import OxfordFlowers
 from .dataset_kaggle import Dataset_kaggle1, Dataset_kaggle2
+from .cyto import Cyto
+from .cyto_random import Cyto_random
+from .cyto_51_52 import Cyto_51_52
 
 
 dataset_list = {
@@ -30,7 +33,12 @@ dataset_list = {
     "kaggle1": Dataset_kaggle1,
     "kaggle2": Dataset_kaggle2,
     "hicervix": HiCervix,
+    "cyto":Cyto,
+    "cyto_random":Cyto_random,
+    "cyto_51_52":Cyto_51_52
 }
+
+
 
 
 def build_dataset(

@@ -2,9 +2,12 @@ import os
 import argparse
 import numpy as np
 import pandas as pd
-
+import wandb
+import torch
 
 if __name__ == "__main__":
+    wandb.init(project='cyto')
+   
 
     # Parser creation
     parser = argparse.ArgumentParser()
@@ -45,7 +48,7 @@ if __name__ == "__main__":
         type=str,
         default="kaggle1",
         help="Name of the dataset used",
-        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix"],
+        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix", "cyto", "cyto_random","cyto_51_52"],
     )
     parser.add_argument(
         "--level_launch",
@@ -65,7 +68,13 @@ if __name__ == "__main__":
         type=str,
         default="lora",
         help="Task name",
-        choices=["classifier", "lora", "percentage_lora"],
+        choices=["classifier", "lora", "percentage_lora", "image_classifier"],
+    )
+    parser.add_argument(
+        "--wsi_image",
+        type=str,
+        default="C:\\Users\\lucas\\AAA_MEMOIRE\\Code_Memoire\\img\\database\\",
+        help="name of the wsi image used in image_classifier task"
     )
     args = parser.parse_args()
 
@@ -87,7 +96,21 @@ if __name__ == "__main__":
 
     task = args.task_launch
 
-    if dataset == "kaggle1":
+    wsi_image = args.wsi_image
+
+    if dataset == "cyto":
+        num_classes = 9
+        root_path = "cyto"
+    
+    elif dataset == "cyto_random":
+        num_classes = 9
+        root_path = "cyto_random"
+        
+    elif dataset =="cyto_51_52":
+        num_classes = 2
+        root_path = "cyto"
+
+    elif dataset == "kaggle1":
         num_classes = 4
         root_path = "path_of_dataset"  # TO CHANGE
 
@@ -144,9 +167,9 @@ if __name__ == "__main__":
     print(f"Run started: model {model_name}, lr {lr}, r {r}, seed {seed}")
 
     os.system(
-        f"python3 main.py --root_path {root_path} \
+        f"python main.py --root_path {root_path} \
         --dataset {dataset} --seed {seed} --shots {shot} --lr {lr} \
             --n_iters {n_iters} --position {position} --encoder {encoder} --percentage {percent}\
                 --params {params} --r {r} --model_name {model_name} --num_classes {num_classes}\
-                    --level {level} --backbone {backbone} --textual {textual} --task {task}"
+                    --level {level} --backbone {backbone} --textual {textual} --task {task} --wsi_image {wsi_image}"
     )

@@ -28,7 +28,7 @@ def get_arguments():
         type=str,
         default="kaggle1",
         help="Name of the dataset used",
-        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix"],
+        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix", "cyto","cyto_random","cyto_51_52"],
     )
     parser.add_argument("--shots", type=int, default=16, help="Shot number")
     parser.add_argument(
@@ -48,7 +48,7 @@ def get_arguments():
         type=str,
         default="lora",
         help="Task name",
-        choices=["classifier", "lora", "percentage_lora"],
+        choices=["classifier", "lora", "percentage_lora", "image_classifier"],
     )
 
     # Model arguments
@@ -79,11 +79,18 @@ def get_arguments():
         help="Configuration of the model's backbone",
         choices=["ViT-L/14", "ViT-B/16"],
     )
+    parser.add_argument(
+        "--wsi_image",
+        type=str,
+        default="C:\\Users\\lucas\\AAA_MEMOIRE\\Code_Memoire\\img\\database\\",
+        help="name of the wsi image used in image_classifier task"
+    )
+
 
     # Training arguments
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
     parser.add_argument("--n_iters", type=int, default=500, help="Number of iterations")
-    parser.add_argument("--batch_size", type=int, default=32, help="Size of the batch")
+    parser.add_argument("--batch_size", type=int, default=16, help="Size of the batch")
 
     # Argument definition
     parser.add_argument(
@@ -126,7 +133,8 @@ def get_arguments():
 
     parser.add_argument(
         "--save_path",
-        default=None,
+        type=str,
+        default="C:\\Users\\lucas\\Cytology-fine-tuning\\Results\\lora_cyto_clip_0_1_0.01_2_results.pt\\",
         help="path to save the lora modules after training, not saved if None",
     )
     parser.add_argument(

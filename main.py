@@ -6,7 +6,7 @@ import open_clip
 from datasets import build_dataset
 import torchvision.transforms as transforms
 from datasets.utils import build_data_loader
-from lora import run_uni, run_uni_lora, run_uni_lora_percent
+from lora import run_uni, run_uni_lora, run_uni_lora_percent, run_process_wsi
 from run_utils import set_random_seed, get_arguments
 from transformers import AutoModelForImageClassification, AutoImageProcessor
 from features import (
@@ -295,10 +295,23 @@ def main():
             shuffle=True,
             num_workers=5,
         )
+    elif args.task == "image_classifier":
+        dataset = build_dataset(args.dataset, args.root_path, args.shots)
+
+        test_loader = build_data_loader(
+            data_source=dataset.test,
+            batch_size=256,
+            is_train=False,
+            tfm=preprocess,
+            shuffle=False,
+            num_workers=5,
+        )
 
     else:
         print("We are in the wrong situation")
 
+
+    print(f"\n Running {args.task} ... \n")
     # Classifier experiment
     if args.task == "classifier":
         run_uni(args, model_clip, logit_scale, train_loader, val_loader, test_loader)
@@ -314,6 +327,9 @@ def main():
         run_uni_lora_percent(
             args, model_clip, logit_scale, train_loader, val_loader, test_loader
         )
+    elif args.task == "image_classifier":
+        
+        run_process_wsi(args, model_clip,'/wsi_image_results', test_loader)
 
     else:
         print("Wrong task name")
