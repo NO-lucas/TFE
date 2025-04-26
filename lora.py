@@ -8,6 +8,8 @@ from utils import cls_acc, get_function
 import pytorch_warmup as warmup
 import torch.nn.functional as F
 from transformers.modeling_outputs import ImageClassifierOutput
+import cv2
+import torch
 
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -110,12 +112,12 @@ def evaluate_lora_uni(args, clip_model, loader, test=False, name=''):
     acc = 0.0
     loss_epoch = 0.0
     tot_samples = 0
-    errors_matrix = defaultdict(lambda: defaultdict(int))  # Matrice d'erreurs
-    total_per_class = defaultdict(int)  # Nombre total d'exemples par classe
-    hesitation_data = defaultdict(list)  # Stocke les probabilités d'hésitation par vraie classe
-    colors = []  # Stocke la couleur des points pour le scatter plot
-    prob_values = []  # Liste pour stocker les probabilités des bonnes classifications
-    correct_classifications = defaultdict(list)  # Stocke les bonnes classifications par classe
+    errors_matrix = {}
+    total_per_class = {}
+    hesitation_data = {}
+    colors = []
+    prob_values = []
+    correct_classifications = {}
     classes_x = ["1", "2", "3", "41", "42", "51", "52", "54", "57"]
 
     with torch.no_grad():
@@ -138,25 +140,23 @@ def evaluate_lora_uni(args, clip_model, loader, test=False, name=''):
 
             if test:
                 preds = image_features.argmax(dim=1)
-                probs = torch.softmax(image_features, dim=1)  # Convertir en probabilités
-                top2_preds = probs.argsort(dim=1, descending=True)[:, :2]  # Deux meilleures prédictions
+                probs = torch.softmax(image_features, dim=1)
+                top2_preds = probs.argsort(dim=1, descending=True)[:, :2]
 
                 for label, pred, prob, top2 in zip(target.cpu().numpy(), preds.cpu().numpy(), probs.cpu().numpy(), top2_preds.cpu().numpy()):
                     total_per_class[label] += 1
                     if label != pred:
-                        errors_matrix[label][pred] += 1  # Enregistre l'erreur
-                        hesitation_data[label].append(prob[pred])  # Probabilité accordée à la mauvaise classe
+                        errors_matrix[label][pred] += 1
+                        hesitation_data[label].append(prob[pred])
 
-                        # Vérification de la 2e meilleure prédiction
                         if label in top2:  
-                            colors.append("green")  # ✅ Le modèle hésitait avec la vraie classe
+                            colors.append("green")
                         else:
-                            colors.append("blue")  # ❌ Mauvaise prédiction sans hésitation avec la vraie classe
+                            colors.append("blue")
                     else:
-                        # Si la prédiction est correcte, on ajoute ce point à une autre liste
-                        # colors.append("black")  # ✅ Prédiction correcte
-                        prob_values.append(prob[label])  # Probabilité de la bonne prédiction
-                        correct_classifications[label].append(prob[label])  # Ajoute à la bonne classe
+                        
+                        prob_values.append(prob[label])
+                        correct_classifications[label].append(prob[label])
 
     try:
         wandb.log({"val_loss": loss_epoch / tot_samples, "val_accuracy": acc / tot_samples})
@@ -166,10 +166,7 @@ def evaluate_lora_uni(args, clip_model, loader, test=False, name=''):
     loss_epoch /= tot_samples
 
     if test:
-        print("📊 Génération des visualisations d'erreur...")
-
-        # Heatmap des erreurs
-        classes = sorted(total_per_class.keys())  # Classes en int
+        classes = sorted(total_per_class.keys())
         confusion_matrix = [[errors_matrix[true_class].get(pred_class, 0) for pred_class in classes] for true_class in classes]
 
         plt.figure(figsize=(10, 7))
@@ -180,15 +177,14 @@ def evaluate_lora_uni(args, clip_model, loader, test=False, name=''):
         plt.savefig(f"{args.model_name}_{name}_errors.png")
         plt.show()
 
-        # Scatter plot des hésitations avec couleurs conditionnelles
         all_x, all_y, means_x, means_y = [], [], [], []
         for cls, probs in hesitation_data.items():
-            all_x.extend([cls] * len(probs))  # X : Vraie classe (int)
-            all_y.extend(probs)  # Y : Probabilité accordée à la mauvaise classe
+            all_x.extend([cls] * len(probs))
+            all_y.extend(probs)
             means_x.append(cls)
-            means_y.append(np.mean(probs))  # Moyenne des hésitations pour chaque classe
+            means_y.append(np.mean(probs))
 
-        # Affichage des bons et mauvais points sur le même scatter plot
+        
         plt.figure(figsize=(10, 5))
         plt.scatter(all_x, all_y, alpha=0.8, c=colors, label="Prediction errors (green = right 2nd pred, blue = wrong)")
         plt.scatter(means_x, means_y, color="red", marker="o", s=100, label="Means by class")
@@ -196,8 +192,8 @@ def evaluate_lora_uni(args, clip_model, loader, test=False, name=''):
 
         all_x_correct, all_y_correct, means_x_correct, means_y_correct = [], [], [], []
         for cls, prob_list in correct_classifications.items():
-            all_x_correct.extend([cls] * len(prob_list))  # X : Vraie classe (int)
-            all_y_correct.extend(probs)  # Y : Probabilité accordée à la mauvaise classe
+            all_x_correct.extend([cls] * len(prob_list))
+            all_y_correct.extend(probs)
             means_x_correct.append(cls)
             means_y_correct.append(np.mean(prob_list))
         
@@ -206,12 +202,10 @@ def evaluate_lora_uni(args, clip_model, loader, test=False, name=''):
         plt.ylabel("Probability given to the predicted class")
         plt.title("How much the model is hesitating predicting errors")
         plt.legend()
-        plt.xticks(ticks=list(range(len(classes_x))), labels=classes_x)  # Labels pour X
+        plt.xticks(ticks=list(range(len(classes_x))), labels=classes_x)
         plt.grid(True, linestyle="--", alpha=0.6)
         plt.savefig(f"{args.model_name}_{name}_hesitation_scatter.png")
         plt.show()
-
-        print(f"📊 Graphiques enregistrés sous : {args.model_name}_{name}_errors.png et {args.model_name}_{name}_hesitation_scatter.png")
 
     return acc, loss_epoch
 
@@ -222,10 +216,10 @@ def run_uni_lora(args, clip_model, logit_scale, train_loader, val_loader, test_l
     WANDB = True
     VALIDATION = True
     acc_val = 0.0
-    best_val_loss = float("inf")  # Initialisation avec une valeur très grande
+    best_val_loss = float("inf")
     best_model_path = None  
 
-    patience = 500  # Nombre d'epochs sans amélioration avant arrêt
+    patience = 500
     no_improve_epochs = 0
     best_acc_val = 0.0
 
@@ -370,19 +364,19 @@ def run_uni_lora(args, clip_model, logit_scale, train_loader, val_loader, test_l
             # **Early Stopping**
             if acc_val > best_acc_val:
                 best_acc_val = acc_val
-                no_improve_epochs = 0  # Reset si amélioration
+                no_improve_epochs = 0  # Reset if better val acc
             else:
-                no_improve_epochs += 1  # Compte les epochs sans amélioration
+                no_improve_epochs += 1  # epochs without enhancing
 
             if no_improve_epochs >= patience:
-                print(f"⏹️ Early stopping déclenché après {patience} epochs sans amélioration.")
-                break  # Arrêt de la boucle d'entraînement
+                print(f"⏹️ Early stopping launched")
+                break 
 
 
     print("Testing with last clip model ...")
     acc_test, _ = evaluate_lora_uni(args, clip_model_, test_loader, test=True)
     print(f"**** Final test accuracy for last clip model : {acc_test:.2f} ****")
-    # **Chargement du meilleur modèle avant test**
+    # **Loading best model before test**
     if best_model_path:
         print(f"🔄 Loading best model from {best_model_path} for final evaluation")
         clip_model_.load_state_dict(torch.load(best_model_path))
@@ -405,124 +399,347 @@ def run_uni_lora(args, clip_model, logit_scale, train_loader, val_loader, test_l
 
 
 
-from tqdm import tqdm
+
+def create_background_mask(slide_path, level=7, save_path="bg_mask.npy", debug=False):
+    slide = openslide.OpenSlide(slide_path)
+    print(slide.dimensions)
+    thumbnail = np.array(slide.read_region((0, 0), level, slide.level_dimensions[level]))[:, :, :3]
+    gray = cv2.cvtColor(thumbnail, cv2.COLOR_RGB2GRAY)
+
+    # threshold
+    _, binary = cv2.threshold(gray, 220, 255, cv2.THRESH_BINARY_INV)
+
+    # cleaning very small background
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 4))
+    clean = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+    clean = cv2.morphologyEx(clean, cv2.MORPH_CLOSE, kernel)
+
+    # Find countours
+    contours, hierarchy = cv2.findContours(clean, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    # empty mask
+    mask = np.zeros(clean.shape, dtype=np.uint8)
+
+    # draw contours
+    cv2.drawContours(mask, contours, -1, color=1, thickness=cv2.FILLED)
+    final_mask = 1 - mask
+
+    np.save(save_path, final_mask)
+
+    if debug:
+        debug_img = thumbnail.copy()
+        debug_img[final_mask == 1] = [0, 255, 0]
+        cv2.imwrite("debug_mask.png", debug_img)
+
+        plt.figure(figsize=(12, 6))
+        plt.imshow(debug_img)
+        plt.title("background mask")
+        plt.axis("off")
+ 
+    
+    return final_mask
+
+
+def is_background_patch(x, y, mask, res_ratio, patch_size):
+    """Check if the center of the mask is in the background"""
+    cx = int((x + patch_size // 2) / res_ratio)
+    cy = int((y + patch_size // 2) / res_ratio)
+    if cx >= mask.shape[1] or cy >= mask.shape[0]:
+        return False
+    return mask[cy, cx] == 1
+import glob
+
 def run_process_wsi(args, clip_model, output_path, test_loader, only_test=False):
-    """
-    Parcours les patches d'une image WSI, extrait les embeddings et effectue des prédictions.
-    Args:
-        args: arguments de configuration.
-        clip_model: modèle CLIP pré-entraîné.
-        output_path: chemin pour enregistrer les résultats.
-    """
+    # ndpi_paths = glob.glob("wsi_images/*.ndpi")
+    ndpi_paths = ["C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/09C07888.ndpi",
+                  "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/11C01217.ndpi"]
+    for slide_path in ndpi_paths:
+        slide_name = os.path.splitext(os.path.basename(slide_path))[0]
+        print(f"processing {slide_name}...")
 
-    slide = openslide.OpenSlide("image_wsi/11C01217.ndpi")
-    
+        slide = openslide.OpenSlide(slide_path)
+        low_res = 4
+        low_scale_factor = (slide.level_dimensions[0][0]/ slide.level_dimensions[low_res][0])
+        high_res = 2
+        high_scale_factor = (slide.level_dimensions[0][0]/ slide.level_dimensions[high_res][0])
 
-    # # Définir le classifieur
-    num_features = 512
-    model_linear = nn.Sequential(
-        nn.Flatten(start_dim=1), nn.Linear(num_features, args.num_classes)
-    ).cuda()
-    
-    list_lora_layers = apply_lora(args, clip_model)
-    clip_model = clip_model.cuda()
-    mark_only_lora_as_trainable(clip_model)
-    trainable_parameters_ = get_lora_parameters(clip_model)
+        width_low_res = slide.level_dimensions[low_res][0]
+        height_low_res = slide.level_dimensions[low_res][1]
 
-    for _, param in model_linear.named_parameters():
-        trainable_parameters_.append(param)
+        width_high_res = slide.level_dimensions[high_res][0]
+        height_high_res = slide.level_dimensions[high_res][1]
+
+        level = 7
+
+        patch_size = 224
     
-    clip_model_ = nn.Sequential(clip_model.visual, model_linear)
-    
-    # Boucle sur tous les fichiers de poids dans le dossier best_models
-    weight_folder = "best_models"
-    for weights_name in os.listdir(weight_folder):
-        weight_path = os.path.join(weight_folder, weights_name)
+        res_ratio = 2**(level - low_res)
+
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.481, 0.457, 0.408], std=[0.268, 0.261, 0.275]),
+        ])
+
+        os.makedirs(f"wsi_results_low_res/{slide_name}", exist_ok=True)
+        os.makedirs(f"wsi_results_high_res/{slide_name}", exist_ok=True)
+
+        bg_mask_path = f"{slide_name}_background_mask.npy"
         
-        if weights_name.endswith(".pth"):  # Vérifier que c'est bien un fichier de poids
-            try:
-                clip_model_.load_state_dict(torch.load(weight_path))
-                print(f"Model {weights_name} loaded")
-                acc_test, _ = evaluate_lora_uni(args, clip_model_, test_loader, test=True, name=weights_name)
-                print(f"**** Final test accuracy for {weights_name}: {acc_test:.2f} ****")
-            except Exception as e:
-                print(f"Error loading {weights_name}: {e}")
+        bg_mask = create_background_mask(slide_path, level=level, save_path=bg_mask_path, debug=True)
+
+        # Loading low res model
+        num_features = 512
+        model_linear = nn.Sequential(nn.Flatten(start_dim=1), nn.Linear(num_features, args.num_classes)).cuda()
+        apply_lora(args, clip_model)
+        clip_model = clip_model.cuda()
+        mark_only_lora_as_trainable(clip_model)
+        for _, param in model_linear.named_parameters():
+            get_lora_parameters(clip_model).append(param)
+        clip_model_ = nn.Sequential(clip_model.visual, model_linear)
+        clip_model_.load_state_dict(torch.load("best_models/low_res.pth"))
+
+        low_res_preds = []
+
+        print("Prediction low res")
+        with torch.no_grad():
+            for x in tqdm(range(0, width_low_res, patch_size), desc=f"LowRes X - {slide_name}"):
+                data = []
+                for y in range(0, height_low_res, patch_size):
+                    if is_background_patch(x, y, bg_mask, res_ratio, patch_size):
+                        continue
+                    tile = slide.read_region((int(x*low_scale_factor), int(y*low_scale_factor)), low_res, (224, 224)).convert("RGB")
+                    tile_tensor = transform(tile).unsqueeze(0).cuda()
+
+                    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                        image_features = clip_model_(tile_tensor)
+                    logits = image_features
+                    probs = torch.softmax(logits, dim=1).cpu().numpy().flatten()
+                    prediction = torch.argmax(logits, dim=1).item()
+
+                    data.append({
+                        "x": x,
+                        "y": y,
+                        "prediction": prediction,
+                        "probabilities": probs.tolist(),
+                        "embedding": image_features.cpu().numpy().tolist()
+                    })
+                    low_res_preds.append((x, y, prediction))
+
+                df = pl.DataFrame(data)
+                df.write_parquet(f"wsi_results_low_res/{slide_name}/wsi_lowres_results_x{x}.parquet")
+
+        # High res
+        print("Raffinement high resolution...")
+        model_linear = nn.Sequential(nn.Flatten(start_dim=1), nn.Linear(num_features, 9)).cuda()
+        clip_model_ = nn.Sequential(clip_model.visual, model_linear)
+        clip_model_.load_state_dict(torch.load("best_models/high_res.pth"))
+
+        with torch.no_grad():
+            confirmed_41_coords = set()
+
+            for x, y, pred in tqdm(low_res_preds, desc=f"HighRes refinement - {slide_name}"):
+                if is_background_patch(x, y, bg_mask, res_ratio, patch_size):
+                    continue
+
+                
+                if pred == 3:
+                    # Random pacthe
+                    confirmations = 0
+                    for _ in range(3):
+                        # choosing random patche in the low res one
+                        offset_x = np.random.randint(0, patch_size)
+                        offset_y = np.random.randint(0, patch_size)
+                        hx = int((x + offset_x / patch_size) * high_scale_factor)
+                        hy = int((y + offset_y / patch_size) * high_scale_factor)
+                        tile = slide.read_region((hx, hy), high_res, (224, 224)).convert("RGB")
+                        tile_tensor = transform(tile).unsqueeze(0).cuda()
+
+                        with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                            image_features = clip_model_(tile_tensor)
+                        logits = image_features
+                        prediction = torch.argmax(logits, dim=1).item()
+
+                        if prediction == 3:
+                            confirmations += 1
+
+                    if confirmations >= 1:
+                        confirmed_41_coords.add((x, y))  # We validate the patche
+                        # register pred
+                        df = pl.DataFrame([{
+                            "x": x,
+                            "y": y,
+                            "confirmed_prediction": 41,
+                            "note": "confirmed from high res"
+                        }])
+                        df.write_parquet(f"wsi_results_high_res_sampling/{slide_name}/confirmed_41_patch_{x}_{y}.parquet")
+
+                elif pred == 4:
+                
+                    for _ in range(3):
+                        offset_x = np.random.randint(0, patch_size)
+                        offset_y = np.random.randint(0, patch_size)
+                        hx = int((x + offset_x / patch_size) * high_scale_factor)
+                        hy = int((y + offset_y / patch_size) * high_scale_factor)
+                        tile = slide.read_region((hx, hy), high_res, (224, 224)).convert("RGB")
+                        tile_tensor = transform(tile).unsqueeze(0).cuda()
+
+                        with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                            image_features = clip_model_(tile_tensor)
+                        logits = image_features
+                        probs = torch.softmax(logits, dim=1).cpu().numpy().flatten()
+                        prediction = torch.argmax(logits, dim=1).item()
+
+                        if prediction in [3,4,5,6,7,8]:
+                            df = pl.DataFrame([{
+                                "x": x,
+                                "y": y,
+                                "refined_prediction": prediction,
+                                "probabilities": probs.tolist(),
+                                "embedding": image_features.cpu().numpy().tolist()
+                            }])
+                            df.write_parquet(f"wsi_results_high_res_sampling/{slide_name}/refined_patch_{x}_{y}_pred{prediction}.parquet")
+
+        print(f"Pipeline over for {slide_name}.\n")
+
+
+import os
+import time
+import glob
+import torch
+import openslide
+import pandas as pd
+import numpy as np
+import polars as pl
+from torchvision import transforms
+from tqdm import tqdm
+import joblib
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.svm import SVC
+import os
+import time
+import glob
+import torch
+import openslide
+import pandas as pd
+import numpy as np
+from torchvision import transforms
+from tqdm import tqdm
+import joblib
+import torch.nn as nn
+
+def compute_entropy(probs):
+    return -np.sum(probs * np.log(probs + 1e-8))
+
+def pipeline(args, clip_model, output_path):
+    ndpi_paths = [
+        "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/09C07888.ndpi",
+        "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/11C01217.ndpi"
+    ]
     
-    if only_test:
-        print("Only the test was performed")
-        return
-    
-    weight_path = 'best_models/model_82_8_600_100.pth'
-    weight_path_51_52 = "best_51_52/best_clip_model_600_cyto_51_52.pth"
-    clip_model_.load_state_dict(torch.load(weight_path))
-    # specialized_model = torch.load(weight_path_51_52)
-    # specialized_model.eval().cuda()
+    for slide_path in ndpi_paths:
+        slide_name = os.path.splitext(os.path.basename(slide_path))[0]
+        print(f"Processing {slide_name} ...")
+        
+        slide = openslide.OpenSlide(slide_path)
+        low_res = 2
+        low_scale_factor = (slide.level_dimensions[0][0] / slide.level_dimensions[low_res][0])
 
-    patch_size = 224
+        width_low_res = slide.level_dimensions[low_res][0]
+        height_low_res = slide.level_dimensions[low_res][1]
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.481, 0.457, 0.408], std=[0.268, 0.261, 0.275]),
-    ])
-    width, height = slide.dimensions
+        level = 7
+        patch_size = 224
+        res_ratio = 2 ** (level - low_res)
 
-    print("Device utilisé :", "GPU" if torch.cuda.is_available() else "CPU")
-    os.makedirs("wsi_results", exist_ok=True)
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.481, 0.457, 0.408], std=[0.268, 0.261, 0.275]),
+        ])
 
-    i = 0
-    with torch.no_grad():
-        for x in tqdm(range(0, width, patch_size), desc="Processing tiles (x)"):
-            data = []
-            for y in tqdm(range(0, height, patch_size), desc="Processing tiles (y)", leave=False):
-                tile = slide.read_region((x, y), 0, (patch_size, patch_size)).convert("RGB")
-                tile_tensor = transform(tile).unsqueeze(0).cuda()
+        os.makedirs(f"wsi_results_low_res/{slide_name}", exist_ok=True)
 
-                # Extraire les features avec CLIP
-                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                    image_features = clip_model_(tile_tensor)
-                logits = image_features
-                probabilities = torch.softmax(logits, dim=1).cpu().numpy().flatten()
-                prediction = torch.argmax(logits, dim=1).item()
+        bg_mask_path = f"{slide_name}_background_mask.npy"
+        bg_mask = create_background_mask(slide_path, level=level, save_path=bg_mask_path, debug=True)
 
-                # # Vérification si la classe prédit est 51 ou 52 (indices 5 et 6 dans le vecteur de probas)
-                # if prediction in [99999]:
-                #     clip_model_.load_state_dict(torch.load(weight_path_51_52))
-                #     with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                #         specialized_logits = specialized_model(tile_tensor)
-                #     specialized_probs = torch.softmax(specialized_logits, dim=1).cpu().numpy().flatten()
-                #     specialized_prediction = torch.argmax(specialized_logits, dim=1).item()
-                    
-                #     # Mise à jour des probabilités
-                #     probabilities[5] = specialized_probs[0]  # Probabilité de la classe 51
-                #     probabilities[6] = specialized_probs[1]  # Probabilité de la classe 52
-                #     probabilities /= probabilities.sum()  # Normalisation
-                    
-                #     # Mise à jour de la prédiction
-                #     prediction = 5 if specialized_prediction == 0 else 6
-                #     image_features = specialized_logits  # Mise à jour des embeddings
-                #     clip_model_.load_state_dict(torch.load(weight_path))
-                # Sauvegarde des résultats
-                data.append({
-                    "x": x,
-                    "y": y,
-                    "prediction": prediction,
-                    "probabilities": probabilities.tolist(),
-                    "embedding": image_features.cpu().numpy().tolist()
-                })
-            
-            # Convertir en DataFrame Polars
-            df = pl.DataFrame(data)
-            output_path = f"wsi_results/wsi_image_results_{i}.parquet"
-            i += 1
-            df.write_parquet(output_path)
+        # Charger modèle de prédiction CLIP
+        num_features = 512
+        model_linear = nn.Sequential(nn.Flatten(start_dim=1), nn.Linear(num_features, 9)).cuda()
+        apply_lora(args, clip_model)
+        clip_model = clip_model.cuda()
+        mark_only_lora_as_trainable(clip_model)
+        for _, param in model_linear.named_parameters():
+            get_lora_parameters(clip_model).append(param)
+        clip_model_ = nn.Sequential(clip_model.visual, model_linear)
+        clip_model_.load_state_dict(torch.load("best_models/high_res.pth"))
 
+        # Charger SVM et scaler
+        best_svm_model = joblib.load('best_SVM_models/svm_model.joblib')
+        scaler = joblib.load('best_SVM_models/scaler.joblib')
 
-            
+        data_for_features = []
 
+        t0 = time.time()
 
-   
+        print("Prediction on high resolution patches...")
+        with torch.no_grad():
+            for x in tqdm(range(0, width_low_res, patch_size), desc=f"LowRes X - {slide_name}"):
+                for y in range(0, height_low_res, patch_size):
+                    if is_background_patch(x, y, bg_mask, res_ratio, patch_size):
+                        continue
+                    tile = slide.read_region((int(x * low_scale_factor), int(y * low_scale_factor)), low_res, (224, 224)).convert("RGB")
+                    tile_tensor = transform(tile).unsqueeze(0).cuda()
 
-    print(f"Résultats enregistrés dans {output_path}")
+                    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                        image_features = clip_model_(tile_tensor)
+
+                    logits = image_features
+                    probs = torch.softmax(logits, dim=1).cpu().numpy().flatten()
+                    prediction = torch.argmax(logits, dim=1).item()
+
+                    # Calcul de l'entropie ici
+                    entropy = compute_entropy(probs)
+
+                    # Collecte toutes les infos nécessaires
+                    data_for_features.append({
+                        "x": x,
+                        "y": y,
+                        "prediction": prediction,
+                        "entropy": entropy
+                    })
+
+        t1 = time.time()
+        print(f"Time looping over the slide : {t1 - t0:.2f} seconds")
+
+        ### Reformatting + SVM
+        t2 = time.time()
+        df_patches = pd.DataFrame(data_for_features)
+
+        features_dict = {}
+        for idx, row in df_patches.iterrows():
+            img_id = slide_name 
+            if img_id not in features_dict:
+                features_dict[img_id] = np.zeros((9, 2))  # (count, mean entropy)
+            features_dict[img_id][row["prediction"], 0] += 1
+            features_dict[img_id][row["prediction"], 1] += row["entropy"]
+
+        for img_id in features_dict:
+            for class_idx in range(9):
+                count = features_dict[img_id][class_idx, 0]
+                if count > 0:
+                    features_dict[img_id][class_idx, 1] /= count  # mean entropy
+
+        X_slide = np.array([v.flatten() for v in features_dict.values()])
+
+        X_slide_scaled = scaler.transform(X_slide)
+
+        y_slide_pred = best_svm_model.predict(X_slide_scaled)
+
+        print(f"Predicted class for {slide_name}: {y_slide_pred[0]}")
+
+        t3 = time.time()
+        print(f"Reformmating + prediction time : {t3 - t2:.2f} seconds")
+
+        print(f"Pipeline over for {slide_name}.\n")
 
 
 
