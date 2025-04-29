@@ -294,7 +294,7 @@ def run_uni_lora(args, clip_model, logit_scale, train_loader, val_loader, test_l
     )
     warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period)
 
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler()
     count_iters = 0
     count_epochs = 0
 
@@ -630,10 +630,11 @@ import torch.nn as nn
 def compute_entropy(probs):
     return -np.sum(probs * np.log(probs + 1e-8))
 
-def pipeline(args, clip_model, output_path):
+def pipeline(args, clip_model, output_path, save = True):
     ndpi_paths = [
-        "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/09C07888.ndpi",
-        "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/11C01217.ndpi"
+        # "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/09C07888.ndpi",
+        # "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/11C01217.ndpi"
+        "C:/Users/lucas/AAA_MEMOIRE/Code_Memoire/img/database/16C02221.ndpi"
     ]
     
     for slide_path in ndpi_paths:
@@ -641,7 +642,7 @@ def pipeline(args, clip_model, output_path):
         print(f"Processing {slide_name} ...")
         
         slide = openslide.OpenSlide(slide_path)
-        low_res = 2
+        low_res = 1
         low_scale_factor = (slide.level_dimensions[0][0] / slide.level_dimensions[low_res][0])
 
         width_low_res = slide.level_dimensions[low_res][0]
@@ -657,6 +658,7 @@ def pipeline(args, clip_model, output_path):
         ])
 
         os.makedirs(f"wsi_results_low_res/{slide_name}", exist_ok=True)
+        os.makedirs(f"wsi_results_high_res_{low_res}/{slide_name}", exist_ok=True)
 
         bg_mask_path = f"{slide_name}_background_mask.npy"
         bg_mask = create_background_mask(slide_path, level=level, save_path=bg_mask_path, debug=True)
@@ -670,7 +672,7 @@ def pipeline(args, clip_model, output_path):
         for _, param in model_linear.named_parameters():
             get_lora_parameters(clip_model).append(param)
         clip_model_ = nn.Sequential(clip_model.visual, model_linear)
-        clip_model_.load_state_dict(torch.load("best_models/high_res.pth"))
+        clip_model_.load_state_dict(torch.load("best_models/high_res1.pth"))
 
         # Charger SVM et scaler
         best_svm_model = joblib.load('best_SVM_models/svm_model.joblib')
@@ -683,6 +685,8 @@ def pipeline(args, clip_model, output_path):
         print("Prediction on high resolution patches...")
         with torch.no_grad():
             for x in tqdm(range(0, width_low_res, patch_size), desc=f"LowRes X - {slide_name}"):
+                if save:
+                    data_for_features = []
                 for y in range(0, height_low_res, patch_size):
                     if is_background_patch(x, y, bg_mask, res_ratio, patch_size):
                         continue
@@ -706,6 +710,9 @@ def pipeline(args, clip_model, output_path):
                         "prediction": prediction,
                         "entropy": entropy
                     })
+                if save:
+                    df = pl.DataFrame(data_for_features)
+                    df.write_parquet(f"wsi_results_high_res_{low_res}/{slide_name}/wsi_highres_results_{x}.parquet")
 
         t1 = time.time()
         print(f"Time looping over the slide : {t1 - t0:.2f} seconds")
@@ -742,6 +749,118 @@ def pipeline(args, clip_model, output_path):
         print(f"Pipeline over for {slide_name}.\n")
 
 
+def run_lora_optuna(args, clip_model, logit_scale, train_loader, val_loader, test_loader, trial):
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+
+    WANDB = False  # Pas besoin de wandb pour chaque trial Optuna
+    VALIDATION = True
+    best_val_loss = float("inf")
+    best_acc_val = 0.0
+
+    patience = 20  # Early stopping rapide pour Optuna
+    no_improve_epochs = 0
+
+    if args.model_name in ["vit_google", "clip"]:
+        num_features = 512
+    elif args.model_name in ["quilt", "biomedclip"]:
+        num_features = 512
+    elif args.model_name in ["uni"]:
+        num_features = get_feature_size(clip_model, (3, 224, 224))
+    else:
+        raise ValueError(f"Unknown model_name {args.model_name}")
+
+    model_linear = nn.Sequential(
+        nn.Flatten(start_dim=1), 
+        nn.Linear(num_features, args.num_classes)
+    ).cuda()
+
+    list_lora_layers = apply_lora(args, clip_model)
+    clip_model = clip_model.cuda()
+    mark_only_lora_as_trainable(clip_model)
+    trainable_parameters_ = get_lora_parameters(clip_model)
+
+    for _, param in model_linear.named_parameters():
+        trainable_parameters_.append(param)
+
+    if args.model_name in ["clip", "quilt", "biomedclip"]:
+        clip_model_ = nn.Sequential(clip_model.visual, model_linear)
+    elif args.model_name in ["uni"]:
+        clip_model_ = nn.Sequential(clip_model, model_linear)
+    elif args.model_name in ["vit_google"]:
+        setattr(clip_model, "classifier", model_linear)
+        clip_model_ = clip_model
+
+    optimizer = torch.optim.AdamW(
+        trainable_parameters_,
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        betas=(0.9, 0.999)
+    )
+
+    num_steps = args.n_iters * args.shots
+    warmup_period = 50
+    total_iters = warmup_period + num_steps if args.shots > 0 else num_steps
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=num_steps, eta_min=args.eta_min
+    )
+    warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period)
+
+    scaler = torch.amp.GradScaler()
+    count_iters = 0
+    count_epochs = 0
+
+    while count_iters < total_iters:
+        clip_model_.train()
+        tot_samples = 0
+
+        for images, target in train_loader:
+            images, target = images.cuda(), target.cuda()
+
+            with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                output = clip_model_(images)
+            if isinstance(output, ImageClassifierOutput):
+                output = output.logits
+
+            loss = F.cross_entropy(output, target)
+
+            optimizer.zero_grad()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+            with warmup_scheduler.dampening():
+                if warmup_scheduler.last_step + 1 >= warmup_period:
+                    scheduler.step()
+
+            count_iters += 1
+            tot_samples += target.size(0)
+
+            if count_iters >= total_iters:
+                break
+
+        if VALIDATION:
+            count_epochs += 1
+            acc_val, loss_val = evaluate_lora_uni(args, clip_model_, val_loader)
+
+            if trial is not None:
+                trial.report(acc_val, step=count_epochs)
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
+
+            if acc_val > best_acc_val:
+                best_acc_val = acc_val
+                no_improve_epochs = 0
+            else:
+                no_improve_epochs += 1
+
+            if no_improve_epochs >= patience:
+                break
+
+    return best_acc_val
 
 
 def run_uni_lora_percent(
@@ -798,7 +917,7 @@ def run_uni_lora_percent(
     warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period)
 
     # training LoRA
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler()
 
     count_iters = 0
 

@@ -6,9 +6,16 @@ import open_clip
 from datasets import build_dataset
 import torchvision.transforms as transforms
 from datasets.utils import build_data_loader
-from lora import run_uni, run_uni_lora, run_uni_lora_percent, run_process_wsi
+from lora import run_uni, run_uni_lora, run_uni_lora_percent, run_process_wsi, pipeline, run_lora_optuna
 from run_utils import set_random_seed, get_arguments
 from transformers import AutoModelForImageClassification, AutoImageProcessor
+
+import optuna
+from optuna.pruners import HyperbandPruner
+from optuna.samplers import TPESampler
+import logging
+import sys
+
 from features import (
     features_extractor,
     FeaturesDataset,
@@ -296,7 +303,45 @@ def main():
             num_workers=5,
         )
     elif args.task == "image_classifier":
-        dataset = build_dataset(args.dataset, args.root_path, args.shots)
+        
+        test_loader = None
+    elif args.task == "pipeline":
+        test_loader = None
+
+    elif args.task == "optuna":
+        
+        
+        if args.dataset == "hicervix":
+            pt_path = (
+                "./"
+                + str(args.dataset)
+                + "_"
+                + str(args.seed)
+                + "_"
+                + str(args.shots)
+                + "_"
+                + str(level_name)
+                + ".pt"
+            )
+
+            if not os.path.exists(pt_path):
+                # Doing this to save time.
+                os.system(
+                    f"python3 dataset_hicervix.py --seed_launch {args.seed} --shots_launch {args.shots} --level_launch {args.level}"
+                )
+
+            dataset = torch.load(pt_path, weights_only=False)
+        else:
+            dataset = build_dataset(args.dataset, args.root_path, args.shots)
+
+        val_loader = build_data_loader(
+            data_source=dataset.val,
+            batch_size=256,
+            is_train=False,
+            tfm=preprocess,
+            shuffle=False,
+            num_workers=5,
+        )
 
         test_loader = build_data_loader(
             data_source=dataset.test,
@@ -304,6 +349,15 @@ def main():
             is_train=False,
             tfm=preprocess,
             shuffle=False,
+            num_workers=5,
+        )
+
+        train_loader = build_data_loader(
+            data_source=dataset.train_x,
+            batch_size=args.batch_size,
+            tfm=train_tranform,
+            is_train=True,
+            shuffle=True,
             num_workers=5,
         )
 
@@ -330,6 +384,50 @@ def main():
     elif args.task == "image_classifier":
         
         run_process_wsi(args, model_clip,'/wsi_image_results', test_loader)
+    
+    elif args.task == "pipeline":
+        
+        pipeline(args, model_clip,'/wsi_image_results')
+    elif args.task == "optuna":
+        
+
+        def objective(trial):
+            # Suggest hyperparameters
+            lr = trial.suggest_loguniform("lr", 1e-5, 1e-2)
+            weight_decay = trial.suggest_loguniform("weight_decay", 1e-6, 1e-1)
+            # eta_min = trial.suggest_loguniform("eta_min", 1e-6, 1e-3)
+            n_iters = trial.suggest_int("n_iters", 50, 300)
+            r = trial.suggest_categorical("r", [2, 4, 8, 16, 24])
+            # batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
+            dropout_rate = trial.suggest_uniform("dropout_rate", 0.0, 0.2)
+
+            # Configurer les arguments du modèle
+            args.lr = lr
+            args.weight_decay = weight_decay
+            # args.eta_min = eta_min
+            args.n_iters = n_iters
+            args.r = r
+            # args.batch_size = batch_size
+            args.dropout_rate = dropout_rate
+
+            # Entraîner le modèle
+            val_acc = run_lora_optuna(args, model_clip, logit_scale, train_loader, val_loader, test_loader, trial)
+
+            return val_acc
+        
+        optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
+        study_name = "res2_0"  # Unique identifier of the study.
+        storage_name = "sqlite:///{}.db".format(study_name)
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=TPESampler(n_startup_trials=30),
+            pruner=HyperbandPruner(min_resource=5, max_resource=80, reduction_factor=3),
+            storage=storage_name,  # Specify the storage URL here.
+            study_name=study_name,
+            load_if_exists = False
+        )
+        study.optimize(objective, n_trials=120)
+
 
     else:
         print("Wrong task name")

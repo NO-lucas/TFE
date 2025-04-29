@@ -68,7 +68,7 @@ if __name__ == "__main__":
         type=str,
         default="lora",
         help="Task name",
-        choices=["classifier", "lora", "percentage_lora", "image_classifier"],
+        choices=["classifier", "lora", "percentage_lora", "image_classifier", "pipeline", "optuna"],
     )
     parser.add_argument(
         "--wsi_image",

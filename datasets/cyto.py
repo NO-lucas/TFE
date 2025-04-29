@@ -8,7 +8,7 @@ template = ["A pap smear slide showing a {} cervical cells."]
 
 class Cyto(DatasetBase):
 
-    dataset_dir = "cyto_dataset"
+    dataset_dir = "cyto"
     classes = [
         "1",
         "2",
@@ -30,7 +30,7 @@ class Cyto(DatasetBase):
 
         self.template = template
 
-        train = self.create_list_of_datum("train"+f"_{num_shots}")
+        train = self.create_list_of_datum("train")
 
 
        
@@ -38,7 +38,7 @@ class Cyto(DatasetBase):
         # n_shots_val = min(num_shots, 4)
       
       
-        val = self.create_list_of_datum("val"+f"_{num_shots}")
+        val = self.create_list_of_datum("val")
         test = self.create_list_of_datum("test")
         
         # val = self.generate_fewshot_dataset(val, num_shots=n_shots_val)

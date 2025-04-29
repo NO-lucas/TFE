@@ -48,7 +48,7 @@ def get_arguments():
         type=str,
         default="lora",
         help="Task name",
-        choices=["classifier", "lora", "percentage_lora", "image_classifier"],
+        choices=["classifier", "lora", "percentage_lora", "image_classifier", "pipeline", "optuna"],
     )
 
     # Model arguments
