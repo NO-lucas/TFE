@@ -28,7 +28,7 @@ def get_arguments():
         type=str,
         default="kaggle1",
         help="Name of the dataset used",
-        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix", "cyto","cyto_random","cyto_51_52"],
+        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix", "cyto","cyto_random","cyto_low_res","cyto_51_52"],
     )
     parser.add_argument("--shots", type=int, default=16, help="Shot number")
     parser.add_argument(
@@ -48,7 +48,7 @@ def get_arguments():
         type=str,
         default="lora",
         help="Task name",
-        choices=["classifier", "lora", "percentage_lora", "image_classifier", "pipeline", "optuna"],
+        choices=["classifier", "lora", "percentage_lora", "image_classifier","pipeline", "optuna", "inference"],
     )
 
     # Model arguments
@@ -57,7 +57,7 @@ def get_arguments():
         type=str,
         default="clip",
         help="Name of the model used",
-        choices=["clip", "quilt", "biomedclip", "vit_google", "uni"],
+        choices=["clip", "quilt", "biomedclip", "vit_google", "uni", "dinobloom", "pubmedclip"],
     )
     parser.add_argument(
         "--num_classes",
@@ -90,7 +90,7 @@ def get_arguments():
     # Training arguments
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
     parser.add_argument("--n_iters", type=int, default=500, help="Number of iterations")
-    parser.add_argument("--batch_size", type=int, default=16, help="Size of the batch")
+    parser.add_argument("--batch_size", type=int, default=32, help="Size of the batch")
 
     # Argument definition
     parser.add_argument(
