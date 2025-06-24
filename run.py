@@ -35,7 +35,7 @@ if __name__ == "__main__":
         type=str,
         default="clip",
         help="Name of the model used",
-        choices=["clip", "quilt", "biomedclip", "vit_google", "uni"],
+        choices=["clip", "quilt", "biomedclip", "vit_google", "uni", "dinobloom","pubmedclip"],
     )
     parser.add_argument(
         "--textual_launch",
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         type=str,
         default="kaggle1",
         help="Name of the dataset used",
-        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix", "cyto", "cyto_random","cyto_51_52"],
+        choices=["kaggle1", "kaggle2", "sipakmed", "hicervix", "cyto", "cyto_random","cyto_low_res", "cyto_51_52"],
     )
     parser.add_argument(
         "--level_launch",
@@ -68,7 +68,7 @@ if __name__ == "__main__":
         type=str,
         default="lora",
         help="Task name",
-        choices=["classifier", "lora", "percentage_lora", "image_classifier", "pipeline", "optuna"],
+        choices=["classifier", "lora", "percentage_lora", "image_classifier", "pipeline", "optuna", "inference"],
     )
     parser.add_argument(
         "--wsi_image",
@@ -106,9 +106,13 @@ if __name__ == "__main__":
         num_classes = 9
         root_path = "cyto_random"
         
+    elif dataset =="cyto_low_res":
+        num_classes = 5
+        root_path = "cyto"
+
     elif dataset =="cyto_51_52":
         num_classes = 2
-        root_path = "cyto"
+        root_path = "cyto_dataset"
 
     elif dataset == "kaggle1":
         num_classes = 4
@@ -156,10 +160,12 @@ if __name__ == "__main__":
     else:
         raise RuntimeError("Wrong dataset")
 
-    if model_name in ["clip", "quilt", "biomedclip", "vit_google"]:
+    if model_name in ["clip", "quilt", "biomedclip", "vit_google", "dinobloom", "pubmedclip"]:
         backbone = "ViT-B/16"
     elif model_name in ["uni"]:
         backbone = "ViT-L/14"
+    elif model_name in ["dinobloom"]:
+        backbone = "ViT-S/14"
 
     if task == "percentage_lora":
         backbone = "ViT-L/14"
